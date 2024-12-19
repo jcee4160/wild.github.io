@@ -22,7 +22,6 @@
       border-radius: 5px;
       background: #f9f9f9;
     }
-    /* Loading spinner */
     .loading-spinner {
       position: fixed;
       top: 50%;
@@ -30,7 +29,6 @@
       transform: translate(-50%, -50%);
       z-index: 9999;
     }
-    /* Page overlay to disable interaction */
     .page-overlay {
       position: fixed;
       top: 0;
@@ -39,7 +37,7 @@
       height: 100%;
       background: rgba(255, 255, 255, 0.8);
       z-index: 9998;
-      display: none; /* Initially hidden */
+      display: none;
     }
     #map {
       height: 300px;
@@ -50,10 +48,7 @@
   </style>
 </head>
 <body>
-  <!-- Page Overlay -->
   <div class="page-overlay" id="pageOverlay"></div>
-
-  <!-- Loading Spinner -->
   <div class="loading-spinner d-none text-center" id="loadingSpinner">
     <div class="spinner-border text-primary" role="status">
       <span class="visually-hidden">Loading...</span>
@@ -95,37 +90,34 @@
       <p id="ApiSpeciesInfo">Waiting for data...</p>
     </div>
   </div>
-    <script type="importmap">
-      {
-        "imports": {
-          "@google/generative-ai": "https://esm.run/@google/generative-ai"
-        }
+
+  <script type="importmap">
+    {
+      "imports": {
+        "@google/generative-ai": "https://esm.run/@google/generative-ai"
       }
-    </script>
-    <script type="module">
-        import { GoogleGenerativeAI } from "@google/generative-ai";
-        
-        // Make the GoogleGenerativeAI available globally
-        window.GoogleGenerativeAI = GoogleGenerativeAI;
-    </script>
+    }
+  </script>
+  <script type="module">
+    import { GoogleGenerativeAI } from "@google/generative-ai";
+    window.GoogleGenerativeAI = GoogleGenerativeAI;
+  </script>
   <script>
     $(document).ready(function () {
       let gpsCoordinates = {};
       let model;
       let map;
       let marker;
-      let selectedImage = null; // Store the selected image for later verification
+      let selectedImage = null;
 
-      // Show loading spinner and overlay while model is loading
       function showLoadingSpinner() {
-        $('#loadingSpinner').removeClass('d-none'); // Show the spinner
-        $('#pageOverlay').show(); // Show the overlay to disable interaction
+        $('#loadingSpinner').removeClass('d-none');
+        $('#pageOverlay').show();
       }
 
-      // Hide the loading spinner and overlay once the model is loaded
       function hideLoadingSpinner() {
-        $('#loadingSpinner').addClass('d-none'); // Hide the spinner
-        $('#pageOverlay').hide(); // Hide the overlay to enable interaction
+        $('#loadingSpinner').addClass('d-none');
+        $('#pageOverlay').hide();
       }
 
       function initializeMap(lat, lng) {
@@ -141,8 +133,6 @@
         }
       }
 
-
-      // Fetch GPS Location
       function getLocation() {
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(function (position) {
@@ -153,7 +143,7 @@
             $("#locationInfo").text(
               `Location: Latitude ${gpsCoordinates.latitude}, Longitude ${gpsCoordinates.longitude}`
             );
-             initializeMap(gpsCoordinates.latitude, gpsCoordinates.longitude);
+            initializeMap(gpsCoordinates.latitude, gpsCoordinates.longitude);
           }, function () {
             $("#locationInfo").text("Error fetching location.");
           });
@@ -162,22 +152,23 @@
         }
       }
 
-      // Trigger location fetch on page load
       getLocation();
 
-      // Load the MobileNet model and show loading spinner while waiting
       async function loadModel() {
-        showLoadingSpinner();  // Show spinner and overlay when loading the model
-
-        model = await mobilenet.load();
-        console.log("Model Loaded");
-
-        hideLoadingSpinner();  // Hide spinner and overlay once the model is loaded
+        try {
+          showLoadingSpinner();
+          model = await mobilenet.load();
+          console.log("Model Loaded Successfully");
+        } catch (error) {
+          console.error("Error loading model:", error);
+          alert("Failed to load the model. Please reload the page.");
+        } finally {
+          hideLoadingSpinner();
+        }
       }
 
       loadModel();
 
-      // Handle file selection and preview
       $("#imageInput").on("change", function (event) {
         const file = event.target.files[0];
         if (file) {
@@ -186,65 +177,64 @@
             selectedImage = new Image();
             selectedImage.onload = function () {
               $("#imagePreview").attr("src", selectedImage.src).removeClass("d-none");
-              $("#submitBtn").removeAttr("disabled"); // Enable the button
+              $("#submitBtn").removeAttr("disabled");
             };
             selectedImage.src = e.target.result;
           };
           reader.readAsDataURL(file);
         } else {
           $("#imagePreview").addClass("d-none");
-          $("#submitBtn").attr("disabled", true); // Disable the button
+          $("#submitBtn").attr("disabled", true);
         }
       });
 
-      // Handle verification on button click
       $("#submitBtn").on("click", function () {
         if (selectedImage && model) {
-          // Show the loading spinner during classification
           showLoadingSpinner();
 
-          model.classify(selectedImage).then(function (predictions) {
+          const resizedImage = resizeImage(selectedImage, 224, 224);
+
+          model.classify(resizedImage).then(function (predictions) {
             const species = predictions[0].className;
             const confidence = predictions[0].probability.toFixed(3);
 
             $("#speciesInfo").text(`Identified: ${species} - Confidence: ${confidence}`);
-
-            // Fetch detailed information from AI API
             getAnimalDescription(species, gpsCoordinates.latitude, gpsCoordinates.longitude);
-
           }).catch(function (error) {
             $("#speciesInfo").text("Error during classification: " + error.message);
           }).finally(function () {
-            // Hide the loading spinner once the process is complete
             hideLoadingSpinner();
           });
         }
       });
 
-      // Fetch animal description using REST API
+      function resizeImage(image, targetWidth, targetHeight) {
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        context.drawImage(image, 0, 0, targetWidth, targetHeight);
+        return canvas;
+      }
+
       function getAnimalDescription(species, latitude, longitude) {
-        const apiKey = "AIzaSyCeDTXtrsLttIgRhOLBdEELR1ztwHOiYu8"; // Replace with your actual API key
-        const prompt = `
-          Provide a detailed description of the animal "${species}". Include its scientific name, common name, 
-          and habitat details. Use the coordinates Latitude: ${latitude}, Longitude: ${longitude} to suggest 
-          potential environmental details and local adaptations. Format the response in HTML with headings and bullet points.
-        `;
+        const apiKey = "AIzaSyCeDTXtrsLttIgRhOLBdEELR1ztwHOiYu8"; // Replace with your API key
+        const prompt = `Provide a detailed description of the animal "${species}". Include its scientific name, common name, 
+            and habitat details. Use the coordinates Latitude: ${latitude}, Longitude: ${longitude} to suggest 
+            potential environmental details and local adaptations. Format the response in html tags without the head.`;
 
         const genAI = new GoogleGenerativeAI(apiKey);
         const modelAI = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-        modelAI.generateContent(prompt)
-          .then((result) => {
-            const geminiInsight = result.response.text().replace(/```html/g, "").replace(/```/g, "");
-            $("#ApiSpeciesInfo").html(geminiInsight);
-          })
-          .catch((error) => {
-            console.error("Error generating content:", error);
-            $("#ApiSpeciesInfo").html("There was an error with the AI response.");
-          });
+        modelAI.generateContent(prompt).then((result) => {
+          const geminiInsight = result.response.text().replace(/```html/g, "").replace(/```/g, "");
+          $("#ApiSpeciesInfo").html(geminiInsight);
+        }).catch((error) => {
+          console.error("Error generating content:", error);
+          $("#ApiSpeciesInfo").html("There was an error with the AI response.");
+        });
       }
     });
-
   </script>
 </body>
 </html>
